@@ -52,7 +52,7 @@ jobs:
           # （浏览器登录与 HTTP 挂机走同一出口，保证 IP/UA 口径一致）
           # NH_PROXY: ${{ secrets.NH_PROXY }}
           NH_WAIT: 25
-          NH_MAX_ROUNDS: 300
+          NH_MAX_ROUNDS: 30
         # 用 xvfb 虚拟屏幕以"有头"模式跑 Chrome：
         # Turnstile 对 headless 检测很严，有头 + 虚拟屏的成功率远高于无头
         run: xvfb-run -a -s "-screen 0 1280x900x24" python3 neoheberg_afk.py
