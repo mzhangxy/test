@@ -204,7 +204,10 @@ def _make_session(ua: str) -> requests.Session:
     s = requests.Session()
     s.headers.update({"User-Agent": ua})
     if NH_PROXY:
-        s.proxies.update({"http": NH_PROXY, "https": NH_PROXY})
+        px = NH_PROXY
+        if px.startswith("socks5://"):  # requests 走 socks5h：DNS 也从代理出去
+            px = "socks5h://" + px[len("socks5://"):]
+        s.proxies.update({"http": px, "https": px})
     return s
 
 def session_from_env() -> requests.Session:

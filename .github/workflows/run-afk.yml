@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests "DrissionPage>=4.0,<5"
+          pip install requests "DrissionPage>=4.0,<5" pysocks  # pysocks: socks 代理需要
           sudo apt-get update -y
           sudo apt-get install -y xvfb
           # ubuntu-latest 自带 Chrome；万一缺失则现装（登录阶段需要真实浏览器）
@@ -37,6 +37,17 @@ jobs:
             sudo apt-get install -y /tmp/chrome.deb
           fi
           google-chrome --version
+
+      # ── 可选：启用优质代理 ──
+      # 机房 IP 过不了 Turnstile / 被 Cloudflare 拦时，取消下面步骤的注释：
+      # 1) 用 sing-box 把 NODE_LINK（节点链接，用法同 Auto-Renew-AclClouds 仓库）
+      #    转成本地 socks5 转发（127.0.0.1:1080）
+      # - name: 🌐 设置 sing-box 代理转发
+      #   continue-on-error: true
+      #   env:
+      #     NODE_LINK: ${{ secrets.NODE_LINK }}
+      #   run: bash <(wget -qO- https://main.ssss.nyc.mn/setup_proxy.sh)
+      # 2) 取消下面 NH_PROXY 注释，浏览器登录与 HTTP 挂机都会走同一代理出口
 
       - name: Run AFK Script
         env:
@@ -48,11 +59,10 @@ jobs:
           # 可选：Telegram 通知
           NH_TG_BOT_TOKEN: ${{ secrets.NH_TG_BOT_TOKEN }}
           NH_TG_CHAT_ID: ${{ secrets.NH_TG_CHAT_ID }}
-          # 可选：Turnstile 在机房 IP 上过不去时，配置优质代理
-          # （浏览器登录与 HTTP 挂机走同一出口，保证 IP/UA 口径一致）
-          # NH_PROXY: ${{ secrets.NH_PROXY }}
+          # 可选：启用上面的 sing-box 步骤后，取消下行注释（本地 socks5 转发）
+          # NH_PROXY: socks5://127.0.0.1:1080
           NH_WAIT: 25
-          NH_MAX_ROUNDS: 30
+          NH_MAX_ROUNDS: 300
         # 用 xvfb 虚拟屏幕以"有头"模式跑 Chrome：
         # Turnstile 对 headless 检测很严，有头 + 虚拟屏的成功率远高于无头
         run: xvfb-run -a -s "-screen 0 1280x900x24" python3 neoheberg_afk.py
