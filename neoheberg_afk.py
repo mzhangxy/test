@@ -5,11 +5,9 @@ NeoHeberg AFK 广告挂机脚本 - 账号密码登录版（GitHub Actions 适配
 ================================================
 站点:    https://dash.neoheberg.fr/shop/ads.php  （免费游戏/网页托管面板看广告赚 coins）
 登录:    https://dash.neoheberg.fr/login （表单带 Cloudflare Turnstile 人机验证）
-机制:    DrissionPage 驱动真实 Chrome 完成账号密码登录（含 Turnstile 打勾，
-         旧版 cf_turnstile_solver.py 的过盾逻辑已内置本文件），
-         登录成功后把 cookie + UA 交给 requests，随后完全复用原纯 HTTP 赚币逻辑：
+机制:    DrissionPage 驱动真实 Chrome 完成账号密码登录，登录成功后把 cookie + UA 交给 requests，随后完全复用原纯 HTTP 赚币逻辑：
          POST csrf_token → 302 Location 内嵌回调 URL → 直接 GET 回调即发币
-         （浏览器只负责登录这一步，赚币全程无浏览器，快且稳）
+         （浏览器只负责登录，赚币全程无浏览器，快且稳）  
 
 流程:
   阶段一 登录（仅启动时 / 会话过期时执行）:
