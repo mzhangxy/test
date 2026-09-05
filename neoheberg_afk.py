@@ -16,7 +16,8 @@ NeoHeberg AFK 广告挂机脚本 - 账号密码登录版（GitHub Actions 适配
     1. 环境变量带 cookie（NH_REMEMBER 等）→ 先试免浏览器快速通道
     2. 快速通道失效 → 浏览器打开 /login:
        填 identifier / password → 勾选 Se souvenir de moi(30 天)
-       → 过 Turnstile → 点 Se connecter → 校验跳转 → 导出 cookie → 关浏览器
+       → 过 Turnstile → 点 Se connecter → 校验跳转（要求稳定离开 /login）
+       → 浏览器内实勘 ads.php 确认登录态真实生效 → 导出 cookie → 关浏览器
     3. 浏览器登录后 UA 与 cookie 一并交给 requests（保证 cf_clearance 口径一致）
   阶段二 赚币（每轮 ~35s, 无冷却）:
     1. GET  /shop/ads.php              → 提取 csrf_token + 当前余额
@@ -180,17 +181,24 @@ def _parse_cookie_header(header: str) -> dict:
 def _is_login_page(r: requests.Response) -> bool:
     return "/login" in r.url or "Connexion" in r.text[:600].replace(" ", "")
 
-def _cookie_login_ok(s: requests.Session) -> bool:
+def _cookie_login_ok(s: requests.Session, verbose: bool = False) -> bool:
     """用现有 cookie 访问一次受保护页面，判断会话是否仍有效。"""
     try:
         r = s.get(ADS_URL, timeout=20)
     except Exception as e:
         log.warning("访问站点异常: %s", e)
         return False
-    if r.status_code in (403, 503) and "cloudflare" in r.text[:2000].lower():
+    head = r.text[:2000].lower()
+    if r.status_code in (403, 429, 503) and ("cloudflare" in head or "just a moment" in head):
         log.warning("HTTP 层被 Cloudflare 拦截 (status=%s)", r.status_code)
         return False
-    return not _is_login_page(r)
+    ok = not _is_login_page(r)
+    if not ok and verbose:
+        # 只记名字不记值，cookie 值绝不入日志（Actions 日志可能公开）
+        sent = [c.name for c in s.cookies if "neoheberg" in (c.domain or "")]
+        log.error("会话验证失败: status=%s | 最终URL=%s | 重定向链=%s | 携带cookie=%s",
+                  r.status_code, r.url, [h.status_code for h in r.history], sent or "无")
+    return ok
 
 def _make_session(ua: str) -> requests.Session:
     s = requests.Session()
@@ -322,21 +330,48 @@ def _wait_login_form(page, timeout_total: int = 60) -> bool:
 
 def _check_remember_box(page) -> None:
     """勾选 Se souvenir de moi（30 天 Remember cookie，供后续免浏览器登录）。
-    复选框字段名未知，按常见命名逐个试；失败不影响主流程。"""
+    优先点 <label>（对视觉隐藏的 input 也生效），并回读真实字段名便于诊断；
+    失败不影响主流程。"""
     try:
+        lbl, target_input = None, None
+        try:
+            for el in page.eles('tag:label', timeout=2):
+                if 'souvenir' in (el.text or '').lower():
+                    lbl = el
+                    break
+        except Exception:
+            lbl = None
+        if lbl is not None:
+            try:
+                fid = lbl.attr('for')
+                if fid:
+                    target_input = page.ele(f'css:#{fid}', timeout=1)
+            except Exception:
+                target_input = None
+            if target_input is None:
+                try:
+                    target_input = lbl.ele('tag:input', timeout=1)
+                except Exception:
+                    target_input = None
+        already = False
+        if target_input is not None:
+            try:
+                already = bool(target_input.states.is_checked)
+            except Exception:
+                already = False
+        if already:
+            log.info("Se souvenir de moi 已是勾选状态")
+            return
+        if lbl is not None:
+            lbl.click()
+            log.info("已勾选 Se souvenir de moi (label)")
+            return
         cb = (page.ele('css:input[name="remember"]', timeout=1)
               or page.ele('css:#remember', timeout=1)
-              or page.ele('css:input[name="remember_me"]', timeout=1)
               or page.ele('css:input[type="checkbox"]', timeout=1))
-        if not cb:
-            return
-        try:
-            already = bool(cb.states.is_checked)
-        except Exception:
-            already = False
-        if not already:
+        if cb:
             cb.click()
-            log.info("已勾选 Se souvenir de moi")
+            log.info("已勾选 Se souvenir de moi (input, name=%s)", cb.attr('name'))
     except Exception:
         pass
 
@@ -358,12 +393,20 @@ def _fill_and_submit(page) -> None:
         raise RuntimeError("提交按钮未找到")
     btn.click()
 
-def _wait_after_submit(page, timeout: int = 25):
-    """等待登录跳转。返回 (是否成功离开登录页, 失败时的页面文字片段)。"""
-    for _ in range(timeout):
+def _wait_after_submit(page, timeout: int = 30):
+    """等待登录跳转，并要求稳定离开 /login 至少 3 秒（防止"路过"假象：
+    302 短暂经过非登录页后又被打回登录页）。返回 (是否成功, 页面文字片段)。"""
+    stable_at = None
+    deadline = time.time() + timeout
+    while time.time() < deadline:
         time.sleep(1)
-        if "/login" not in (page.url or ""):
-            time.sleep(2)  # 等新页面稳定后再取 cookie
+        if "/login" in (page.url or ""):
+            stable_at = None
+            continue
+        if stable_at is None:
+            stable_at = time.time()
+        elif time.time() - stable_at >= 3:
+            time.sleep(1)  # 等新页面稳定
             return True, ""
     try:
         body_ele = page.ele('tag:body')
@@ -371,6 +414,23 @@ def _wait_after_submit(page, timeout: int = 25):
     except Exception:
         body = ""
     return False, body
+
+def _browser_check_ads(page, timeout_total: int = 30) -> bool:
+    """浏览器内访问 ads.php 做登录态"实勘"（比 URL 判断更接近真值）。
+    True  = 浏览器带着当前 cookie 能正常打开广告页（未被踢回 /login）
+    False = 被踢回登录页 → 登录实际未生效"""
+    page.get(ADS_URL)
+    deadline = time.time() + timeout_total
+    while time.time() < deadline:
+        if page.ele('css:#identifier', timeout=3):
+            return False  # 出现登录表单 → 会话无效
+        if _turnstile_click(page):  # 此处万一出现 CF 全页盾，先点掉
+            time.sleep(3)
+            continue
+        time.sleep(1)
+        if not page.ele('css:#identifier', timeout=2):
+            return True
+    return False
 
 def browser_login():
     """浏览器账号密码登录。
@@ -388,16 +448,33 @@ def browser_login():
             ok, snippet = _wait_after_submit(page)
             if not ok:
                 raise RuntimeError(f"提交后仍停留在登录页，页面提示: {snippet[:120] or '(无)'}")
+            log.info("登录后落地页: %s | 标题: %s", page.url, page.title)
+            # 浏览器内"实勘" ads.php：确认登录态真实生效
+            # （防止落地页假象：URL 虽离开 /login，服务端会话其实未认证）
+            if not _browser_check_ads(page):
+                body = ""
+                try:
+                    body_ele = page.ele('tag:body')
+                    body = ((body_ele.text or "") if body_ele else "")[:150].replace("\n", " ").strip()
+                except Exception:
+                    pass
+                raise RuntimeError(f"浏览器内访问 ads.php 被踢回登录页，登录未真正生效。页面提示: {body or '(无)'}")
             raw = _normalize_cookies(page.cookies())
             names = sorted({c.get("name") for c in raw if c.get("name")})
+            lens = {c.get("name"): len(c.get("value") or "") for c in raw}
             if not any(c.get("name") == "__Host-NH" for c in raw):
                 raise RuntimeError(f"登录后未见 __Host-NH cookie（现有: {', '.join(names) or '无'}）")
             ua = page.user_agent or DEFAULT_UA
-            log.info("✅ 浏览器登录成功，cookie: %s", ", ".join(names))
+            log.info("✅ 浏览器登录成功，cookie: %s",
+                     ", ".join(f"{n}({lens.get(n, 0)})" for n in names))
             return raw, ua
         except Exception as e:
             log.warning("浏览器登录失败: %s", e)
             if page:
+                try:
+                    log.warning("失败时页面: url=%s | title=%s", page.url, page.title)
+                except Exception:
+                    pass
                 try:
                     # 清空输入框避免凭据入镜，再截现场图（workflow 会作为 artifact 上传）
                     for sel in ('css:#identifier', 'css:#password'):
@@ -440,7 +517,7 @@ def ensure_login(s: requests.Session) -> bool:
     s.headers.update({"User-Agent": ua})
     s.cookies.clear()
     _apply_raw_cookies(s, raw)
-    if _cookie_login_ok(s):
+    if _cookie_login_ok(s, verbose=True):
         log.info("✅ 重新登录成功，继续挂机")
         return True
     log.error("重新登录后 HTTP 会话验证仍未通过")
@@ -534,7 +611,7 @@ def main() -> None:
                     "或配置 NH_PROXY 后重试")
             sys.exit(1)
         s = session_from_browser(raw, ua)
-        if not _cookie_login_ok(s):
+        if not _cookie_login_ok(s, verbose=True):
             log.error("浏览器登录成功但 HTTP 会话验证未通过")
             send_tg("❌ NeoHeberg 浏览器登录成功，但 cookie 交给 requests 后验证失败")
             sys.exit(1)
