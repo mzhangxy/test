@@ -5,9 +5,11 @@ NeoHeberg AFK 广告挂机脚本 - 账号密码登录版（GitHub Actions 适配
 ================================================
 站点:    https://dash.neoheberg.fr/shop/ads.php  （免费游戏/网页托管面板看广告赚 coins）
 登录:    https://dash.neoheberg.fr/login （表单带 Cloudflare Turnstile 人机验证）
-机制:    DrissionPage 驱动真实 Chrome 完成账号密码登录，登录成功后把 cookie + UA 交给 requests，随后完全复用原纯 HTTP 赚币逻辑：
+机制:    DrissionPage 驱动真实 Chrome 完成账号密码登录（含 Turnstile 打勾，
+         旧版 cf_turnstile_solver.py 的过盾逻辑已内置本文件），
+         登录成功后把 cookie + UA 交给 requests，随后完全复用原纯 HTTP 赚币逻辑：
          POST csrf_token → 302 Location 内嵌回调 URL → 直接 GET 回调即发币
-         （浏览器只负责登录，赚币全程无浏览器，快且稳）  
+         （浏览器只负责登录这一步，赚币全程无浏览器，快且稳）
 
 流程:
   阶段一 登录（仅启动时 / 会话过期时执行）:
@@ -179,6 +181,19 @@ def _parse_cookie_header(header: str) -> dict:
 def _is_login_page(r: requests.Response) -> bool:
     return "/login" in r.url or "Connexion" in r.text[:600].replace(" ", "")
 
+def _cf_blocked(r: requests.Response) -> bool:
+    """判断响应是否为 Cloudflare 拦截页/站点封锁页（200 状态的挑战页也算）。"""
+    head = r.text[:4000].lower()
+    if r.status_code in (403, 429, 503):
+        return True
+    marks = ("just a moment", "attention required", "challenge-platform",
+             "cf-chl", "checking your browser", "enable javascript and cookies")
+    return any(k in head for k in marks)
+
+def _page_title(r: requests.Response) -> str:
+    m = re.search(r"<title>([^<]{0,120})", r.text, re.I)
+    return m.group(1).strip() if m else "(无标题)"
+
 def _cookie_login_ok(s: requests.Session, verbose: bool = False) -> bool:
     """用现有 cookie 访问一次受保护页面，判断会话是否仍有效。"""
     try:
@@ -186,9 +201,9 @@ def _cookie_login_ok(s: requests.Session, verbose: bool = False) -> bool:
     except Exception as e:
         log.warning("访问站点异常: %s", e)
         return False
-    head = r.text[:2000].lower()
-    if r.status_code in (403, 429, 503) and ("cloudflare" in head or "just a moment" in head):
-        log.warning("HTTP 层被 Cloudflare 拦截 (status=%s)", r.status_code)
+    if _cf_blocked(r):
+        log.warning("HTTP 层被 Cloudflare/站点拦截 (status=%s | title=%s)",
+                    r.status_code, _page_title(r))
         return False
     ok = not _is_login_page(r)
     if not ok and verbose:
@@ -533,7 +548,11 @@ def _get_balance(s: requests.Session) -> float:
         raise PermissionError("会话已失效")
     m = re.search(r'font-bold text-lg">([\d.]+) coins', r.text)
     if not m:
-        raise RuntimeError("页面中未找到余额")
+        log.error("ads.php 页面异常: status=%s | 最终URL=%s | title=%s",
+                  r.status_code, r.url, _page_title(r))
+        if _cf_blocked(r):
+            raise RuntimeError(f"ads.php 被拦截 (status={r.status_code})")
+        raise RuntimeError(f"页面中未找到余额 (status={r.status_code})")
     return float(m.group(1))
 
 def _get_csrf(s: requests.Session) -> str:
@@ -542,7 +561,11 @@ def _get_csrf(s: requests.Session) -> str:
         raise PermissionError("会话已失效")
     m = re.search(r'name="csrf_token" value="([a-f0-9]+)"', r.text)
     if not m:
-        raise RuntimeError("csrf token 未找到")
+        log.error("ads.php 页面异常: status=%s | 最终URL=%s | title=%s",
+                  r.status_code, r.url, _page_title(r))
+        if _cf_blocked(r):
+            raise RuntimeError(f"ads.php 被拦截 (status={r.status_code})")
+        raise RuntimeError(f"csrf token 未找到 (status={r.status_code})")
     return m.group(1)
 
 def gen_callback(s: requests.Session, csrf: str) -> str | None:
@@ -635,6 +658,7 @@ def main() -> None:
 
     # ── 阶段二：赚币主循环（沿用原版逻辑）──
     consecutive_fail = 0
+    relogin_cycles = 0
     while True:
         # 退出条件检查：判断是否达到设定的最大轮次
         if NH_MAX_ROUNDS > 0 and state.get("rounds", 0) >= NH_MAX_ROUNDS:
@@ -658,6 +682,7 @@ def main() -> None:
             time.sleep(SETTLE_SECONDS)
             state["rounds"] += 1
             consecutive_fail = 0
+            relogin_cycles = 0
             log.info("第 %d 轮完成 (回调 %s)", state["rounds"], st)
         except PermissionError as e:
             log.error("会话过期: %s，尝试自动重新登录", e)
@@ -676,7 +701,26 @@ def main() -> None:
         except Exception as e:
             log.exception("异常: %s", e)
             consecutive_fail += 1
-            time.sleep(RETRY_COOLDOWN)
+            if consecutive_fail >= 5:
+                # 持续失败：浏览器重登刷新会话与 CF cookie（cf_clearance 等）
+                relogin_cycles += 1
+                if relogin_cycles >= 3:
+                    log.error("页面持续异常，%d 轮重登无效，退出等待下次运行", relogin_cycles)
+                    send_tg("❌ NeoHeberg 页面持续异常（疑似 Cloudflare 拦截），自动重登无效已退出。"
+                            "建议在 workflow 启用 NH_PROXY 优质代理后重跑")
+                    sys.exit(1)
+                log.warning("已连续失败 %d 次，第 %d 次尝试浏览器重登 ...", consecutive_fail, relogin_cycles)
+                try:
+                    if ensure_login(s):
+                        consecutive_fail = 0
+                        continue
+                except Exception as e2:
+                    log.error("重登异常: %s", e2)
+                send_tg("⚠️ NeoHeberg 页面持续异常且重登无效，30 分钟后重试；"
+                        "若反复出现建议启用 NH_PROXY 优质代理")
+                time.sleep(1800)
+            else:
+                time.sleep(RETRY_COOLDOWN)
 
         # 定期报告 + 状态（每次都刷新 total，无论是否到报告间隔）
         try:
