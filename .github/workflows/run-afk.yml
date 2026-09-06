@@ -62,7 +62,7 @@ jobs:
           # 可选：启用上面的 sing-box 步骤后，取消下行注释（本地 socks5 转发）
           # NH_PROXY: socks5://127.0.0.1:1080
           NH_WAIT: 25
-          NH_MAX_ROUNDS: 400
+          NH_MAX_ROUNDS: 600
         # 用 xvfb 虚拟屏幕以"有头"模式跑 Chrome：
         # Turnstile 对 headless 检测很严，有头 + 虚拟屏的成功率远高于无头
         run: xvfb-run -a -s "-screen 0 1280x900x24" python3 neoheberg_afk.py
