@@ -50,7 +50,7 @@ NeoHeberg AFK 广告挂机脚本 - 账号密码登录版（GitHub Actions 适配
   NH_UA="..."           requests 阶段 UA（仅 cookie 快速通道使用；
                         浏览器登录通道固定跟随浏览器自身 UA，保证口径一致）
   NH_HEADLESS=1         无头模式（过盾成功率低，仅调试用）
-  NH_LOGIN_RETRIES=3    浏览器登录尝试次数
+  NH_LOGIN_RETRIES=2    浏览器登录尝试次数
   NH_CHROME_PATH=...    手动指定 Chrome 路径（默认自动探测）
 """
 
@@ -98,14 +98,14 @@ NH_TG_BOT_TOKEN  = os.environ.get("NH_TG_BOT_TOKEN", "")
 NH_TG_CHAT_ID    = os.environ.get("NH_TG_CHAT_ID", "")
 NH_WAIT          = int(os.environ.get("NH_WAIT", "25"))     # 每轮广告等待秒数
 NH_HEADLESS      = os.environ.get("NH_HEADLESS", "0") == "1"
-NH_LOGIN_RETRIES = int(os.environ.get("NH_LOGIN_RETRIES", "3"))
+NH_LOGIN_RETRIES = int(os.environ.get("NH_LOGIN_RETRIES", "2"))
 NH_CHROME_PATH   = os.environ.get("NH_CHROME_PATH", "")
 NH_UA            = os.environ.get("NH_UA", "")  # 留空则快速通道用默认桌面 Chrome UA
 
 DEFAULT_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 
 SETTLE_SECONDS = 7   # 回调后等待入账秒数
-RETRY_COOLDOWN = 30  # 出错后重试冷却
+RETRY_COOLDOWN = 10  # 出错后重试冷却
 
 # ════════════════════════════════════════════════════════════════════
 # 日志
@@ -698,7 +698,6 @@ def main() -> None:
     TARGET_ROUNDS = 100     # 每次启动固定跑 100 轮
     current_round = 0       # 内存独立计数，每次启动从 0 开始
     consecutive_fail = 0
-    relogin_cycles = 0
 
     while True:
         # 退出条件检查：本次启动达到 100 轮立即退出
@@ -713,7 +712,7 @@ def main() -> None:
             if not cb:
                 consecutive_fail += 1
                 if consecutive_fail >= 3:
-                    raise RuntimeError("连续 5 次生成回调失败")
+                    raise RuntimeError("连续 3 次生成回调失败")
                 time.sleep(20)
                 continue
             time.sleep(NH_WAIT)
@@ -725,7 +724,6 @@ def main() -> None:
             # 递增本次运行计数
             current_round += 1
             consecutive_fail = 0
-            relogin_cycles = 0
             log.info("第 %d/%d 轮完成 (回调 %s)", current_round, TARGET_ROUNDS, st)
         except PermissionError as e:
             log.error("会话过期: %s，尝试自动重新登录", e)
@@ -743,7 +741,7 @@ def main() -> None:
         except Exception as e:
             log.exception("异常: %s", e)
             consecutive_fail += 1
-            if consecutive_fail >= 5:
+            if consecutive_fail >= 3:
                 log.warning("已连续失败 %d 次，尝试浏览器重登 ...", consecutive_fail)
                 try:
                     if ensure_login(s):
