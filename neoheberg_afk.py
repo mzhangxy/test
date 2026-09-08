@@ -399,18 +399,37 @@ def _check_remember_box(page) -> None:
         pass
 
 def _fill_and_submit(page) -> None:
+    # 步骤 1：填写用户名/邮箱
     idf = page.ele('css:#identifier', timeout=5)
-    pwd = page.ele('css:#password', timeout=5)
-    if not idf or not pwd:
-        raise RuntimeError("登录表单元素缺失")
+    if not idf:
+        raise RuntimeError("第一步：未找到用户名输入框 (#identifier)")
     idf.clear()
     idf.input(NH_IDENTIFIER)
+    
+    # 点击 Continuer 进入下一步
+    continue_btn = page.ele('css:#goToPassword', timeout=5)
+    if not continue_btn:
+        raise RuntimeError("第一步：未找到 Continuer 按钮 (#goToPassword)")
+    continue_btn.click()
+
+    # 等待界面过渡动画渲染完成
+    time.sleep(1.5)
+
+    # 步骤 2：填写密码
+    pwd = page.ele('css:#password', timeout=5)
+    if not pwd:
+        raise RuntimeError("第二步：未找到密码输入框 (#password)")
     pwd.clear()
     pwd.input(NH_PASSWORD)
+    
+    # 勾选“记住我”
     _check_remember_box(page)
-    # Turnstile token 有效期短且一次性，放在提交前最后一步
+    
+    # 等待并处理 Turnstile 验证码（验证码现已移至第二步）
     if not _turnstile_token(page):
         raise RuntimeError("Turnstile 未取到 token")
+        
+    # 点击最终的 Se connecter 提交按钮
     btn = page.ele('css:button[type="submit"]', timeout=5)
     if not btn:
         raise RuntimeError("提交按钮未找到")
