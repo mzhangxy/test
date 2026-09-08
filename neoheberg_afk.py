@@ -712,7 +712,7 @@ def main() -> None:
             cb = gen_callback(s, csrf)
             if not cb:
                 consecutive_fail += 1
-                if consecutive_fail >= 5:
+                if consecutive_fail >= 3:
                     raise RuntimeError("连续 5 次生成回调失败")
                 time.sleep(20)
                 continue
@@ -733,38 +733,33 @@ def main() -> None:
                 if ensure_login(s):
                     log.info("✅ 自动重新登录成功，继续运行")
                     continue
-                log.error("自动重新登录失败（cookie 与账号密码都未通过），挂机暂停")
-                send_tg("⚠️ NeoHeberg 自动重新登录失败（Turnstile/凭据/网络），"
-                        "1 小时后重试；建议检查 Secrets 或配置 NH_PROXY")
-                time.sleep(3600)
+                log.error("自动重新登录失败，直接退出")
+                send_tg("❌ NeoHeberg 自动重登失败（Turnstile/凭据/网络），程序已退出。")
+                sys.exit(1)
             except Exception as e2:
-                log.error("自动重新登录异常: %s", e2)
-                send_tg(f"⚠️ NeoHeberg 自动重新登录异常: {e2}")
-                time.sleep(3600)
+                log.error("自动重新登录异常: %s，直接退出", e2)
+                send_tg(f"❌ NeoHeberg 自动重登异常退出: {e2}")
+                sys.exit(1)
         except Exception as e:
             log.exception("异常: %s", e)
             consecutive_fail += 1
             if consecutive_fail >= 5:
-                # 持续失败：浏览器重登刷新会话与 CF cookie（cf_clearance 等）
-                relogin_cycles += 1
-                if relogin_cycles >= 3:
-                    log.error("页面持续异常，%d 轮重登无效，退出等待下次运行", relogin_cycles)
-                    send_tg("❌ NeoHeberg 页面持续异常（疑似 Cloudflare 拦截），自动重登无效已退出。"
-                            "建议在 workflow 启用 NH_PROXY 优质代理后重跑")
-                    sys.exit(1)
-                log.warning("已连续失败 %d 次，第 %d 次尝试浏览器重登 ...", consecutive_fail, relogin_cycles)
+                log.warning("已连续失败 %d 次，尝试浏览器重登 ...", consecutive_fail)
                 try:
                     if ensure_login(s):
                         consecutive_fail = 0
                         continue
+                    else:
+                        log.error("重登失败，直接退出")
+                        send_tg("❌ NeoHeberg 页面持续异常且重登失败，程序已退出。建议检查代理或稍后重试。")
+                        sys.exit(1)
                 except Exception as e2:
-                    log.error("重登异常: %s", e2)
-                send_tg("⚠️ NeoHeberg 页面持续异常且重登无效，30 分钟后重试；"
-                        "若反复出现建议启用 NH_PROXY 优质代理")
-                time.sleep(1800)
+                    log.error("重登异常: %s，直接退出", e2)
+                    send_tg(f"❌ NeoHeberg 重登异常退出: {e2}")
+                    sys.exit(1)
             else:
                 time.sleep(RETRY_COOLDOWN)
-
+        
         # 定期报告 + 状态持久化（仅保存余额差值统计，不保存轮次）
         try:
             bal = _get_balance(s)
