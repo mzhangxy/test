@@ -80,7 +80,7 @@ except ImportError:
 
 BASE = "https://dash.neoheberg.fr"
 LOGIN_URL = f"{BASE}/login"
-ADS_URL = f"{BASE}/shop/ads.php"
+ADS_URL = f"{BASE}/shop/ads"
 STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "neoheberg_state.json")
 
 # 账号密码（主登录通道）
