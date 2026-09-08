@@ -525,8 +525,8 @@ def main() -> None:
             log.error("HTTP 响应提示会话被踢: %s", e)
             if ensure_login(s):
                 continue
-            send_tg("❌ NeoHeberg Cookie 失效且自动重登失败，程序退出。")
-            sys.exit(1)
+            send_tg("❌ NeoHeberg Cookie 失效且自动重登失败，任务提前结束。")
+            sys.exit(0)
 
         except Exception as e:
             log.warning("业务逻辑异常: %s", e)
@@ -536,7 +536,7 @@ def main() -> None:
                 if relogin_cycles >= 1:
                     log.error("连续失败且已重置过浏览器，直接报错退出。")
                     send_tg("❌ NeoHeberg 连续异常，重启浏览器无效，程序已退出。")
-                    sys.exit(1)
+                    sys.exit(0)
                 
                 # 若未重启过浏览器，执行唯一一次强制重登
                 log.info("连续失败 3 次，执行强制浏览器重启 ...")
@@ -547,7 +547,7 @@ def main() -> None:
                 else:
                     log.error("强制重启浏览器失败，直接退出。")
                     send_tg("❌ NeoHeberg 重启浏览器失败，程序已退出。")
-                    sys.exit(1)
+                    sys.exit(0)
             else:
                 time.sleep(RETRY_COOLDOWN)
 
