@@ -47,7 +47,6 @@ NeoHeberg AFK 广告挂机脚本 - 账号密码登录版（GitHub Actions 适配
 
 其他可选环境变量:
   NH_WAIT=25            每轮等待秒数（模拟广告时长）
-  NH_MAX_ROUNDS=500     最大轮次（0 不限）
   NH_UA="..."           requests 阶段 UA（仅 cookie 快速通道使用；
                         浏览器登录通道固定跟随浏览器自身 UA，保证口径一致）
   NH_HEADLESS=1         无头模式（过盾成功率低，仅调试用）
@@ -98,7 +97,6 @@ NH_PROXY = os.environ.get("NH_PROXY", "")
 NH_TG_BOT_TOKEN  = os.environ.get("NH_TG_BOT_TOKEN", "")
 NH_TG_CHAT_ID    = os.environ.get("NH_TG_CHAT_ID", "")
 NH_WAIT          = int(os.environ.get("NH_WAIT", "25"))     # 每轮广告等待秒数
-NH_MAX_ROUNDS    = int(os.environ.get("NH_MAX_ROUNDS", "300"))  # 最大执行轮次，0 为无限制
 NH_HEADLESS      = os.environ.get("NH_HEADLESS", "0") == "1"
 NH_LOGIN_RETRIES = int(os.environ.get("NH_LOGIN_RETRIES", "3"))
 NH_CHROME_PATH   = os.environ.get("NH_CHROME_PATH", "")
