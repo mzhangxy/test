@@ -291,8 +291,15 @@ def _build_chromium_options():
         co.set_argument(arg)
     if NH_HEADLESS:
         co.set_argument("--headless=new")  # 无头过盾成功率低，仅调试用
+    # 修改后：
     if NH_PROXY:
-        co.set_proxy(NH_PROXY)
+        if NH_PROXY.startswith("socks5"):
+            # 绕过 DrissionPage 的 set_proxy 限制，直接通过底层参数传给 Chrome
+            co.set_argument(f"--proxy-server={NH_PROXY}")
+            # 强制通过代理服务器解析 DNS，防止 DNS 泄露导致被 Cloudflare 风控
+            co.set_argument("--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1")
+        else:
+            co.set_proxy(NH_PROXY)
     return co
 
 def _turnstile_click(page) -> bool:
