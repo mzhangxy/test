@@ -572,30 +572,43 @@ def _get_balance(s: requests.Session) -> float:
     r = s.get(ADS_URL, timeout=20)
     if _is_login_page(r):
         raise PermissionError("会话已失效")
-    m = re.search(r'font-bold text-lg">([\d.]+) coins', r.text)
+    
+    # 兼容带千分位逗号的格式，并兼容可能被翻译插件插入的 HTML 标签
+    m = re.search(r'([\d.,]+)\s*(?:</[^>]+>\s*)?coins', r.text, re.IGNORECASE)
+    
     if not m:
-        log.error("ads.php 页面异常: status=%s | 最终URL=%s | title=%s",
+        log.error("ads 页面异常: status=%s | 最终URL=%s | title=%s",
                   r.status_code, r.url, _page_title(r))
         if _cf_blocked(r):
-            raise RuntimeError(f"ads.php 被拦截 (status={r.status_code})")
+            raise RuntimeError(f"ads 被拦截 (status={r.status_code})")
         raise RuntimeError(f"页面中未找到余额 (status={r.status_code})")
-    return float(m.group(1))
+    
+    # 剔除千分位逗号并转换为浮点数
+    clean_val = m.group(1).replace(',', '').strip()
+    return float(clean_val)
 
 def _get_csrf(s: requests.Session) -> str:
     r = s.get(ADS_URL, timeout=20)
     if _is_login_page(r):
         raise PermissionError("会话已失效")
-    m = re.search(r'name="csrf_token" value="([a-f0-9]+)"', r.text)
+        
+    # 优先匹配 meta 标签，其次匹配表单的 input
+    m = re.search(r'name="csrf[_-]token" (?:content|value)="([a-f0-9]+)"', r.text, re.IGNORECASE)
     if not m:
-        log.error("ads.php 页面异常: status=%s | 最终URL=%s | title=%s",
+        log.error("ads 页面异常: status=%s | 最终URL=%s | title=%s",
                   r.status_code, r.url, _page_title(r))
         if _cf_blocked(r):
-            raise RuntimeError(f"ads.php 被拦截 (status={r.status_code})")
+            raise RuntimeError(f"ads 被拦截 (status={r.status_code})")
         raise RuntimeError(f"csrf token 未找到 (status={r.status_code})")
     return m.group(1)
 
 def gen_callback(s: requests.Session, csrf: str) -> str | None:
-    r = s.post(ADS_URL, data={"csrf_token": csrf}, allow_redirects=False, timeout=20)
+    # 新增 ads_action 参数以匹配新版前端表单
+    payload = {
+        "csrf_token": csrf,
+        "ads_action": "toggle"
+    }
+    r = s.post(ADS_URL, data=payload, allow_redirects=False, timeout=20)
     loc = r.headers.get("Location")
     if not loc:
         return None
