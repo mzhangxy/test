@@ -139,12 +139,13 @@ def load_state() -> dict:
             state = json.load(f)
     except Exception:
         state = {}
-    # 补齐缺失字段，兼容旧版状态文件
+    # 补齐缺失字段，不再维护 rounds
     state.setdefault("start_balance", None)
     state.setdefault("last_balance", None)
     state.setdefault("total", 0.0)
-    state.setdefault("rounds", 0)
     state.setdefault("last_report", 0)
+    # 如果旧的 state 文件里残留了 rounds 字段，直接移除
+    state.pop("rounds", None)
     return state
 
 def save_state(state: dict) -> None:
@@ -621,7 +622,7 @@ def redeem(s: requests.Session, callback: str) -> int:
     r = s.get(callback, headers={"Referer": "https://clipurl.fr/"}, timeout=20)
     return r.status_code
 
-def report(state: dict, balance: float, force: bool = False) -> None:
+def report(state: dict, balance: float, current_round: int = 0, force: bool = False) -> None:
     now = time.time()
     if not force and now - state.get("last_report", 0) < 3600:
         return
@@ -632,10 +633,10 @@ def report(state: dict, balance: float, force: bool = False) -> None:
     msg = (
         f"🪄 NeoHeberg AFK 已连接\n📅 {ts}\n\n"
         f"💰 <b>余额</b>: {balance:.4f} 🪙\n"
-        f"📈 <b>累计收益</b>: +{total:.4f} 🪙（{state['rounds']} 轮）"
+        f"📈 <b>历史累计收益</b>: +{total:.4f} 🪙（本次已跑 {current_round}/100 轮）"
     )
     send_tg(msg)
-    log.info("TG 报告: 余额=%s 累计收益=%s", balance, total)
+    log.info("TG 报告: 余额=%s 历史累计收益=%s (本次进度: %s/100)", balance, total, current_round)
 
 # ════════════════════════════════════════════════════════════════════
 # 主流程
@@ -695,14 +696,17 @@ def main() -> None:
         send_tg(f"❌ NeoHeberg 启动失败: {e}")
         sys.exit(1)
 
-    # ── 阶段二：赚币主循环（沿用原版逻辑）──
+    # ── 阶段二：赚币主循环 ──
+    TARGET_ROUNDS = 100     # 每次启动固定跑 100 轮
+    current_round = 0       # 内存独立计数，每次启动从 0 开始
     consecutive_fail = 0
     relogin_cycles = 0
+
     while True:
-        # 退出条件检查：判断是否达到设定的最大轮次
-        if NH_MAX_ROUNDS > 0 and state.get("rounds", 0) >= NH_MAX_ROUNDS:
-            log.info("🎯 已达到设定的最大轮次 %d，脚本平滑退出", NH_MAX_ROUNDS)
-            send_tg(f"✅ NeoHeberg 任务完成，已跑满 {NH_MAX_ROUNDS} 轮，平滑退出。")
+        # 退出条件检查：本次启动达到 100 轮立即退出
+        if current_round >= TARGET_ROUNDS:
+            log.info("🎯 本次运行已完成 %d 轮，脚本平滑退出", TARGET_ROUNDS)
+            send_tg(f"✅ NeoHeberg 任务完成，本次已跑满 {TARGET_ROUNDS} 轮，平滑退出。")
             break
 
         try:
@@ -719,10 +723,12 @@ def main() -> None:
             if st != 200:
                 log.warning("回调状态异常: %s", st)
             time.sleep(SETTLE_SECONDS)
-            state["rounds"] += 1
+            
+            # 递增本次运行计数
+            current_round += 1
             consecutive_fail = 0
             relogin_cycles = 0
-            log.info("第 %d 轮完成 (回调 %s)", state["rounds"], st)
+            log.info("第 %d/%d 轮完成 (回调 %s)", current_round, TARGET_ROUNDS, st)
         except PermissionError as e:
             log.error("会话过期: %s，尝试自动重新登录", e)
             try:
@@ -761,11 +767,11 @@ def main() -> None:
             else:
                 time.sleep(RETRY_COOLDOWN)
 
-        # 定期报告 + 状态（每次都刷新 total，无论是否到报告间隔）
+        # 定期报告 + 状态持久化（仅保存余额差值统计，不保存轮次）
         try:
             bal = _get_balance(s)
             update_earnings(state, bal)
-            report(state, bal)
+            report(state, bal, current_round)
             save_state(state)
         except Exception:
             pass
