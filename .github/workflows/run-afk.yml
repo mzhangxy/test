@@ -42,11 +42,11 @@ jobs:
       # 机房 IP 过不了 Turnstile / 被 Cloudflare 拦时，取消下面步骤的注释：
       # 1) 用 sing-box 把 NODE_LINK（节点链接，用法同 Auto-Renew-AclClouds 仓库）
       #    转成本地 socks5 转发（127.0.0.1:1080）
-      # - name: 🌐 设置 sing-box 代理转发
-      #   continue-on-error: true
-      #   env:
-      #     NODE_LINK: ${{ secrets.NODE_LINK }}
-      #   run: bash <(wget -qO- https://main.ssss.nyc.mn/setup_proxy.sh)
+      - name: 🌐 设置 sing-box 代理转发
+        continue-on-error: true
+        env:
+          NODE_LINK: ${{ secrets.NODE_LINK }}
+        run: bash <(wget -qO- https://main.ssss.nyc.mn/setup_proxy.sh)
       # 2) 取消下面 NH_PROXY 注释，浏览器登录与 HTTP 挂机都会走同一代理出口
 
       - name: Run AFK Script
@@ -60,7 +60,7 @@ jobs:
           NH_TG_BOT_TOKEN: ${{ secrets.NH_TG_BOT_TOKEN }}
           NH_TG_CHAT_ID: ${{ secrets.NH_TG_CHAT_ID }}
           # 可选：启用上面的 sing-box 步骤后，取消下行注释（本地 socks5 转发）
-          # NH_PROXY: socks5://127.0.0.1:1080
+          NH_PROXY: socks5://127.0.0.1:1080
           NH_WAIT: 25
           NH_MAX_ROUNDS: 900
         # 用 xvfb 虚拟屏幕以"有头"模式跑 Chrome：
