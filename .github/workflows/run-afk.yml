@@ -60,7 +60,7 @@ jobs:
           NH_TG_BOT_TOKEN: ${{ secrets.NH_TG_BOT_TOKEN }}
           NH_TG_CHAT_ID: ${{ secrets.NH_TG_CHAT_ID }}
           # 可选：启用上面的 sing-box 步骤后，取消下行注释（本地 socks5 转发）
-          NH_PROXY: socks5://127.0.0.1:1080
+          NH_PROXY: http://127.0.0.1:1080
           NH_WAIT: 25
           NH_MAX_ROUNDS: 900
         # 用 xvfb 虚拟屏幕以"有头"模式跑 Chrome：
