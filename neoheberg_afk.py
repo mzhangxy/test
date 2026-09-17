@@ -371,6 +371,13 @@ def browser_login():
             return raw, ua
         except Exception as e:
             log.warning("浏览器登录失败: %s", e)
+            if page:
+                pic_name = f"nh_debug_login_attempt_{attempt}.png"
+                try:
+                    page.get_screenshot(path=pic_name, full_page=True)
+                    log.info("📸 已保存调试截图: %s", pic_name)
+                except Exception as pic_e:
+                    log.error("截图失败: %s", pic_e)
             time.sleep(8)
         finally:
             if page:
