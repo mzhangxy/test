@@ -242,10 +242,18 @@ def _cap_token(page) -> bool:
             try:
                 widget = page.ele('tag:cap-widget', timeout=1)
                 if widget and widget.shadow_root:
-                    # 获取 shadow-root 内部注入的 token 隐藏域
-                    resp = widget.shadow_root.ele('css:input[name="cap-token"]', timeout=1)
-                    if resp and resp.value and len(resp.value) > 10:
+                    
+                    # 改进点 1：直接判断 UI 状态是否变为“完成”
+                    done_state = widget.shadow_root.ele('css:.captcha[data-state="done"]', timeout=1)
+                    if done_state:
                         return True
+                        
+                    # 改进点 2：兼容读取 attribute 属性
+                    resp = widget.shadow_root.ele('css:input[name="cap-token"]', timeout=1)
+                    if resp:
+                        val = resp.value or resp.attr('value')
+                        if val and len(val) > 10:
+                            return True
             except Exception:
                 pass
     return False
