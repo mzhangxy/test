@@ -237,7 +237,7 @@ def _cap_token(page) -> bool:
     """等待 Cap 验证通过并获取 token"""
     for _ in range(3):
         _cap_click(page)
-        for _ in range(15):
+        for _ in range(60):
             time.sleep(1)
             try:
                 widget = page.ele('tag:cap-widget', timeout=1)
