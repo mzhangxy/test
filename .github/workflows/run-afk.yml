@@ -3,7 +3,7 @@ name: NeoHeberg AFK Runner
 on:
   workflow_dispatch:  # 允许手动触发
   schedule:
-    - cron: '0 21 * * *'
+    - cron: '0 12 * * *'
 
 # state 文件会被提交回仓库，避免同一时间有两个 run 并发写导致冲突/丢更新
 concurrency:
